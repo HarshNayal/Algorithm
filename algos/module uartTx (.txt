@@ -1,0 +1,92 @@
+module uartTx (
+    input CLK_CLKOUT0,    
+    input rstn,
+    output tx_rstn,
+    output led1,
+    output uartTx
+);
+
+reg tx;
+assign led1 = tx;  // Reflect tx state on LED
+assign uartTx = tx;  // UART transmit line
+assign tx_rstn = rstn;  // Reset line for UART
+
+// Parameters
+parameter BAUD_RATE = 115200;                   // Baud rate (bps)
+parameter CLOCK_FREQ = 50000000;              // Clock frequency (Hz)
+parameter BIT_PERIOD = (CLOCK_FREQ / BAUD_RATE) - 1; // Bit period in clock cycles
+
+// Internal registers
+reg [3:0] tx_state;         // State machine state register
+reg [15:0] baud_counter;    // Counter for timing baud periods
+reg [7:0] data_to_send;    // Data to transmit
+reg [3:0] bit_index;       // Index to keep track of current bit
+
+// State definitions for UART
+parameter IDLE_STATE = 4'b0000;   // Idle state (Tx line is high)
+parameter START_STATE = 4'b0001;  // Start bit state (Tx line is low)
+parameter DATA_STATE = 4'b0010;   // Data bits transmission state
+parameter STOP_STATE = 4'b0011;   // Stop bit state (Tx line is high)
+
+initial begin
+    //data_to_send = 8'b11001011; // Example data to transmit
+    data_to_send = 8'hFF;
+    end
+
+always @(posedge CLK_CLKOUT0 or negedge rstn) begin
+    if (!rstn) begin
+        // Reset state
+        tx <= 1;                // Tx line high (idle state)
+        tx_state <= IDLE_STATE; // Initial state is idle
+        baud_counter <= BIT_PERIOD; // Initialize baud counter
+        bit_index <= 0;         // Initialize bit index
+    end else begin
+        // State machine for UART transmission
+        case(tx_state)
+            IDLE_STATE: begin
+                tx <= 1;  // Tx line high (idle)
+                if (baud_counter == 0) begin
+                    tx_state <= START_STATE;  // Move to start bit state
+                    baud_counter <= BIT_PERIOD; // Initialize baud counter
+                end
+            end
+            
+            START_STATE: begin
+                tx <= 0;  // Transmit start bit (low)
+                if (baud_counter == 0) begin
+                    tx_state <= DATA_STATE;  // Move to data bits state
+                    bit_index <= 0;          // Start with the first bit
+                    baud_counter <= BIT_PERIOD;
+                end
+            end
+            
+            DATA_STATE: begin
+                tx <= data_to_send[bit_index];  // Transmit current bit
+                if (baud_counter == 0) begin
+                    bit_index <= bit_index + 1;  // Move to the next bit
+                    if (bit_index == 7) begin
+                        tx_state <= STOP_STATE;  // All data bits sent, move to stop bit state
+                    end
+                    baud_counter <= BIT_PERIOD; // Reset baud counter
+                end
+            end
+            
+            STOP_STATE: begin
+                tx <= 1;  // Transmit stop bit (high)
+                if (baud_counter == 0) begin
+                    tx_state <= IDLE_STATE;  // Move back to idle state
+                    baud_counter <= BIT_PERIOD; // Reset baud counter
+                end
+            end
+            
+            default: tx_state <= IDLE_STATE;  // Default to idle state
+        endcase
+        
+        // Decrement baud counter if it's counting
+        if (baud_counter > 0) begin
+            baud_counter <= baud_counter - 1;
+        end
+    end
+end
+
+endmodule

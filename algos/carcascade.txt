@@ -1,0 +1,36 @@
+int mycarcascade() {
+    CascadeClassifier car_cascade;
+    if (!car_cascade.load("cars.xml")) {
+        cerr << "Error loading car cascade file\n";
+        return -1;
+    }
+
+    VideoCapture cap("car_video.mp4"); 
+    if (!cap.isOpened()) {
+        cerr << "Error opening video stream\n";
+        return -1;
+    }
+
+    Mat frame, gray;
+    vector<Rect> cars;
+
+    while (cap.read(frame)) {
+        cvtColor(frame, gray, COLOR_BGR2GRAY);
+        equalizeHist(gray, gray);
+
+        // Detect cars
+        //car_cascade.detectMultiScale(gray, cars, 1.1, 2.4, 4 | CASCADE_SCALE_IMAGE, Size(40, 40));
+        car_cascade.detectMultiScale(gray, cars, 1.1, 2.4, 0, Size(40, 40));
+
+        for (const auto& car : cars) {
+            rectangle(frame, car, Scalar(255, 0, 0), 2);
+        }
+
+        imshow("Car Detection", frame);
+        if (waitKey(30) == 27) break;
+    }
+
+    cap.release();
+    destroyAllWindows();
+    //return 0;
+}

@@ -1,0 +1,61 @@
+#include <stdio.h>
+
+int spirallyTraverse(int m, int n,int mat[m][n]) {
+
+    int row = m;
+    int col = n;
+    int arr[row*col] = {};
+    int count = 0;
+    int top = 0; 
+    int bottom = row-1;
+    int right = col - 1;
+    int left;
+    
+    while(top <= bottom && left <= right) {
+        
+        for (int i = left; i <= right; i++) {
+        // arr[count] = mat[top][i]; 
+        printf("%d ",mat[top][i]);
+        // count++;
+        }
+        top++;
+        
+        for (int i = top; i <= bottom; i++) {
+        // arr[count] = mat[i][right]; 
+        printf("%d ",mat[i][right]);
+        // count++;
+        }
+        right--;
+        
+        if (top <= bottom) {
+            for (int i = right; i>= left; i--) {
+            // arr[count] = mat[bottom][i]; 
+            printf("%d ",mat[bottom][i]); 
+            // count++;
+            }
+            bottom--;
+        }
+        
+        if (left <= right) {
+            for (int i = bottom; i>= top; i--) {
+            // arr[count] = mat[i][left]; 
+            printf("%d ",mat[i][left]); 
+            // count++;
+            }
+            left++;
+        } 
+        
+    }
+    return 0;
+}
+int main() {
+    // Write C code here
+    int mat[5][5] =           {{1,6,11,16,21}, 
+                               {2,7,12,17,22}, 
+                               {3,8,13,18,23}, 
+                               {4,9,14,19,24},
+                               {5,10,15,20,25}
+    };
+   spirallyTraverse(5,5,mat);
+    return 0;
+}

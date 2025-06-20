@@ -1,0 +1,35 @@
+// C Program to find the maximum subarray sum using nested loops
+
+#include <stdio.h>
+#include <limits.h>
+
+// Function to find the sum of subarray with maximum sum
+int maxSubarraySum(int arr[], int size) {
+    long long sum = 0;
+    long long max = LONG_MIN;
+    int startIndex, start ,stopIndex;
+    for (int i = 0; i < size; i++) {
+        sum = sum + arr[i];
+        if (sum == 0) startIndex = i;
+        if (sum > max) {
+            max = sum;
+            start = startIndex;
+            stopIndex = i;
+        }
+        if (sum < 0) {
+            sum = 0;
+        }
+    }
+    for (int i = start; i <= stopIndex; i++) {
+        printf("%d ",arr[i]);
+    }
+    printf("\n");
+    return max;
+}
+
+int main() {
+    int arr[] = {2, 3, -8, 7, -1, 2, 3}; // {-4,-2-,-3,-1};
+    int size = sizeof(arr) / sizeof(arr[0]);
+    printf("%d", maxSubarraySum(arr, size));
+    return 0;
+}

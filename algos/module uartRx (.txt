@@ -1,0 +1,113 @@
+module uartRx (
+    input CLK_CLKOUT0,           // Clock signal
+    input rstn,                  // Reset (active low)
+    input uartRx,                // UART receive line
+    output tx_rstn,
+    output led1,
+    output led2,
+    output reg [7:0] received_data, // Received data
+    output reg data_ready        // Signal when data is ready
+);
+
+assign tx_rstn = rstn;
+reg [3:0] rx_state;              // State machine state register
+reg [15:0] baud_counter;         // Counter for timing baud periods
+reg [3:0] bit_index;            // Index to track the current bit
+reg [7:0] rx_data;              // Received data (8 bits)
+reg [3:0] char_index;           // Index to track the current character
+
+
+// Parameters for UART
+parameter BAUD_RATE = 115200;             // Baud rate (bps)
+parameter CLOCK_FREQ = 50000000;         // Clock frequency (Hz)
+parameter BIT_PERIOD = (CLOCK_FREQ / BAUD_RATE) - 1; // Bit period in clock cycles
+
+// State definitions for UART
+parameter IDLE_STATE = 4'b0000;    // Idle state (waiting for start bit)
+parameter START_STATE = 4'b0001;   // Start bit state (Rx line goes low)
+parameter DATA_STATE = 4'b0010;    // Data bits reception state
+parameter STOP_STATE = 4'b0011;    // Stop bit state (Rx line goes high)
+
+// Initial block to reset the values
+initial begin
+    rx_state = IDLE_STATE;
+    baud_counter = BIT_PERIOD;
+    bit_index = 0;
+    char_index = 0;
+    received_data = 0;
+    data_ready = 0;
+end
+
+// UART Receiver logic
+always @(posedge CLK_CLKOUT0 or negedge rstn) begin
+    if (!rstn) begin
+        // Reset values when reset is asserted
+        rx_state <= IDLE_STATE;
+        baud_counter <= BIT_PERIOD;
+        bit_index <= 0;
+        char_index <= 0;
+        received_data <= 0;
+        data_ready <= 0;
+    end else begin
+        // UART Receiver state machine
+        case(rx_state)
+            IDLE_STATE: begin
+                // Wait for start bit (Rx line goes low)
+                data_ready <= 0;  // Clear data ready flag
+                if (baud_counter == 0 && uartRx == 0) begin  // Start bit detected
+                    rx_state <= START_STATE;  // Move to start state
+                    baud_counter <= BIT_PERIOD;  // Initialize baud counter
+                end
+            end
+            
+            START_STATE: begin
+                // Wait for the middle of the start bit (Rx line is low)
+                if (baud_counter == 0) begin
+                    rx_state <= DATA_STATE;  // Move to data state
+                    bit_index <= 0;          // Start reading the first bit
+                    baud_counter <= BIT_PERIOD;  // Reset baud counter
+                end
+            end
+            
+            DATA_STATE: begin
+                // Receive data bits (8 bits in total)
+                if (baud_counter == 0) begin
+                    rx_data[bit_index] <= uartRx;  // Capture the current bit
+                    bit_index <= bit_index + 1;   // Move to the next bit
+                    
+                    if (bit_index == 7) begin
+                        rx_state <= STOP_STATE;  // All data bits received, move to stop state
+                    end
+                    
+                    baud_counter <= BIT_PERIOD;  // Reset baud counter
+                end
+            end
+            
+            STOP_STATE: begin
+                // Check for stop bit (Rx line should be high)
+                if (baud_counter == 0) begin
+                    if (uartRx == 1) begin
+                        received_data <= rx_data;  // Store the received data
+                        data_ready <= 1;           // Set data ready flag
+                    end else begin
+                        // If the stop bit is not high, the data is corrupted
+                        data_ready <= 0;  // Clear data ready flag
+                    end
+                    rx_state <= IDLE_STATE;  // Go back to idle state
+                    baud_counter <= BIT_PERIOD;  // Reset baud counter
+                end
+            end
+            
+            default: rx_state <= IDLE_STATE;  // Default to idle state
+        endcase
+        
+        // Decrement baud counter if it's counting
+        if (baud_counter > 0) begin
+            baud_counter <= baud_counter - 1;
+        end
+    end
+end
+
+endmodule
+
+THIS IS THE UARTrEVEIVER CODE for EFFINITY FPGA now plz add the condition after receving the data to check if the data is something and turn on the led1 and led2 lets suppose the data is some number likeif the dat is 8 or if the data is some asci value of charactercheck it and turn led1 an led2 onon

@@ -1,0 +1,32 @@
+module top (
+    input CLK_CLKOUT0,            // Clock signal
+    input rstn,                   // Reset (active low)
+    input uartRx,                 // UART receive line
+    output tx_rstn,
+    output led1,                  // LED 1 output
+    output led2                   // LED 2 output
+);
+
+wire [7:0] received_data;
+wire data_ready;
+
+// Instantiate the UART receiver module
+uartRx uartRx_inst (
+    .CLK_CLKOUT0(CLK_CLKOUT0),
+    .rstn(rstn),
+    .uartRx(uartRx),
+    .tx_rstn(tx_rstn),
+    .received_data(received_data),
+    .data_ready(data_ready)
+);
+
+// Instantiate the data check module
+data_check data_check_inst (
+    .rstn(rstn),
+    .data_ready(data_ready),
+    .received_data(received_data),
+    .led1(led1),
+    .led2(led2)
+);
+
+endmodule

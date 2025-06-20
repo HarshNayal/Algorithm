@@ -1,0 +1,129 @@
+//#define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING 1
+
+#include <iostream>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/videoio/videoio.hpp>
+#include <opencv2/imgproc.hpp>
+//#include <experimental/filesystem> 
+#include <iomanip>
+#include <sstream>
+#include <ctime>
+#include <filesystem>
+
+
+using namespace cv;
+using namespace std;
+namespace fs = std::filesystem;
+
+int saveVideo(fs::path& output_directory);
+fs::path makeDirectory();
+//void location();
+
+#include <iostream>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Devices.Geolocation.h>
+
+using namespace winrt;
+using namespace Windows::Devices::Geolocation;
+using namespace std;
+
+int saveVideo(fs::path& output_directory) {
+
+    VideoCapture cap(0); 
+
+    if (!cap.isOpened()) {
+        // will throw an error if cam cannot be opened or accessed
+        cerr << "Could not open camera" << endl;
+        return -1;
+    }
+
+    int codec = VideoWriter::fourcc('M', 'J', 'P', 'G'); // MJPEG codec similarly there are codes for H264 also
+    double fps = 60.0; // Frames per second (adjust as needed)
+    Size frame_size(640, 480);
+
+    fs::path filename = output_directory /"processed_mjpeg.avi";  // processed frame filename
+    fs::path filenameOG = output_directory /"original_mjpeg.avi"; // orignal frame filename
+
+    VideoWriter writer;
+    VideoWriter writer2raw;
+    bool is_color = false; // willbe true if you want to store the COLORED frames else grayscale
+    bool is_color_original = true; // since this is the raw frame we will keep it orignal
+
+    // Open VideoWriter
+    if (!writer.open(filename.string(), codec, fps, frame_size, is_color)) {
+        cerr << "Could not open the processed output file" << endl;
+        return -1;
+    }
+
+    if (!writer2raw.open(filenameOG.string(), codec, fps, frame_size, is_color_original)) {
+        cerr << "Could not open the raw output file" << endl;
+        return -1;
+    }
+
+    Mat frame, rgb_frame;
+    while (true) {
+        cap >> frame;
+        if (frame.empty()) break;
+
+        cvtColor(frame, rgb_frame, COLOR_BGR2GRAY);
+        
+        writer << rgb_frame;
+        writer2raw << frame;
+        // Display the frame (optional)
+        imshow("Processed Output", rgb_frame);
+        imshow("Raw Output", frame);
+        if (waitKey(1) >= 0) break; 
+    }
+
+    cap.release();
+    writer.release();
+    writer2raw.release();
+    destroyAllWindows();
+}
+
+fs::path makeDirectory() {
+
+    stringstream date, timestring;
+
+    time_t now = time(0);
+    tm local;
+    localtime_s(&local, &now);
+
+    date << __DATE__;
+    timestring << put_time(&local , "%H-%M-%S");
+
+    auto dir = fs::current_path() / date.str() / timestring.str();
+
+    cout << "Directory name is - " << dir << "\n";
+    if (create_directories(dir)) {
+        cout << "Directory has been created \n";
+    }
+    else {
+        cout << "Directory exists\n";
+    }
+    return dir;
+}
+
+//void location() {
+//    winrt::init_apartment();
+//
+//    try {
+//        Geolocator locator;
+//        auto pos = locator.GetGeopositionAsync().get();
+//        auto coord = pos.Coordinate().Point().Position();
+//
+//        cout << "Latitude: " << coord.Latitude << endl;
+//        cout << "Longitude: " << coord.Longitude << endl;
+//    }
+//    catch (const hresult_error& e) {
+//        wcerr << L"Error: " << e.message().c_str() << endl;
+//    }
+//}
+
+
+int main() {
+    fs::path directory = makeDirectory();
+    saveVideo(directory);
+    return 0;
+}

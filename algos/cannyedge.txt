@@ -1,0 +1,22 @@
+int cannyImageD() {
+    Mat image = imread("sukuna.jpg", COLOR_BGR2GRAY);
+
+    // Check if the image was loaded successfully
+    if (image.empty()) {
+        cout << "Could not open or find the image!" << endl;
+        return -1;
+    }
+    Mat gray, cannyimg;
+    cvtColor(image, cannyimg, COLOR_BGR2GRAY);
+    //equalizeHist(cannyimg, cannyimg);
+    Canny(cannyimg, cannyimg,200,300);
+
+    imshow("Normal Image window", cannyimg);
+    //imshow("Equlize hist window", newgray);
+    // Wait for a keystroke before closing the window
+    waitKey(0);
+
+    // Destroy all opened windows
+    destroyAllWindows();
+
+}

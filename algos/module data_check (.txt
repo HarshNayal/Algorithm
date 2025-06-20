@@ -1,0 +1,28 @@
+module data_check (
+    input rstn,
+    input data_ready,            // Data ready flag from uartRx
+    input [7:0] received_data,   // Received data from uartRx
+    output reg led1,             // LED 1 output
+    output reg led2              // LED 2 output
+);
+
+// Parameters for checking specific data values
+parameter CHECK_VALUE = 8'h08;    // The value to check for (e.g., 8 or any specific ASCII value)
+
+always @(posedge rstn or posedge data_ready) begin
+    if (!rstn) begin
+        led1 <= 0;  // Initialize LED 1 to off
+        led2 <= 0;  // Initialize LED 2 to off
+    end else if (data_ready) begin
+        // Check if the received data matches the specified value
+        if (received_data == CHECK_VALUE) begin
+            led1 <= 1;  // Turn on LED 1
+            led2 <= 1;  // Turn on LED 2
+        end else begin
+            led1 <= 0;  // Keep LED 1 off
+            led2 <= 0;  // Keep LED 2 off
+        end
+    end
+end
+
+endmodule

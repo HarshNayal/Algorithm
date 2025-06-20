@@ -1,0 +1,36 @@
+// Online C compiler to run C program online
+#include <stdio.h>
+
+int rotateArray(int* arr, int d,int n) {
+    
+   
+    int tempArr[n] = {};
+    int dComp = d % n;
+    for(int i = dComp; i <= n - 1; i++) {
+        tempArr[i - dComp] = arr[i];
+        // printf("%d\n",tempArr[i - d]);
+    }
+    
+    for(int i = 0; i < dComp; i++) {
+        tempArr[n - dComp + i] = arr[i];
+        // printf("%d\n",tempArr[n - 2 + i]);
+    }
+    for (int i = 0; i < n; i++) {
+        arr[i] = tempArr[i];
+    }
+    
+    return 0;
+}
+int main() {
+    // Write C code here
+    int arr[] = {1,2,3,4,5,6};
+    int d = 7;
+    int n = sizeof(arr) / sizeof(arr[0]);
+    for (int i = 0; i < n; i++)
+        printf("%d ", arr[i]);
+    rotateArray(arr,d,n);
+    printf("\n");
+    for (int i = 0; i < n; i++)
+        printf("%d ", arr[i]);
+    return 0;
+}
