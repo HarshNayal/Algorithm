@@ -1,0 +1,1475 @@
+/*
+--------------------------------------------
+    YOLOv5 Object Detection in OpenCV (C++)
+    Coco txt file has been Customized for Person & Car Detection
+    Model used: yolov5s-simplified.onnx (converted and optimized via ONNX)
+
+    ONNX format allows integration of PyTorch-exported models into C++ via OpenCV DNN.
+    Only selected classes (person, car) are processed post-inference for simplicity.
+
+    Author : HN
+    Date   : May 2025
+    Time   : 19-05-2025
+--------------------------------------------
+*/
+
+
+#include <fstream>
+#include <iostream>
+#include <opencv2/opencv.hpp>
+//#include <bits/std++.h>
+#include <algorithm>
+
+
+using namespace std;
+using namespace cv;
+using namespace cv::dnn;
+
+// Load labels from coco-classes.txt file load into string vector one by one
+vector<string> load_class_list()
+{
+    vector<string> class_list;
+    ifstream ifs("C:/Users/ekss7040175/ultralytics/coco-personal.txt"); // or your custom labels file
+    // like i can change it to coco_personal as well as coco_classes.txt
+
+    string line;
+    while (getline(ifs, line))
+    {
+        class_list.push_back(line);
+    }
+    return class_list;
+}
+
+// Load YOLOv5 ONNX model
+void load_net(Net& net)
+{
+    auto result = readNet("C:/Users/ekss7040175/ultralytics/yolov5s-simplified.onnx"); 
+    // can use readNetFromONNX also since we are already reading an onnx simplified file
+    cout << "Running on CPU\n";
+
+    result.setPreferableBackend(DNN_BACKEND_OPENCV);
+    result.setPreferableTarget(DNN_TARGET_CPU);  // use DNN_TARGET_CUDA if GPU is available
+
+    net = result;
+}
+
+// Box colors
+const vector<Scalar> colors = {
+    Scalar(255, 255, 0),
+    Scalar(0, 255, 0),
+    Scalar(0, 255, 255),
+    Scalar(255, 0, 0)
+};
+
+// Model parameters
+const float INPUT_WIDTH = 640.0;
+const float INPUT_HEIGHT = 640.0;
+const float SCORE_THRESHOLD = 0.35;  // 0.5 all below are
+const float NMS_THRESHOLD = 0.35;
+const float CONFIDENCE_THRESHOLD = 0.35;
+
+// Detection structure
+struct Detection
+{
+    int class_id;
+    float confidence;
+    Rect box;
+};
+
+// Resize and pad image to square
+Mat format_yolov5(const Mat& source) {
+    int col = source.cols;
+    int row = source.rows;
+    int _max = max(col, row);
+    Mat result = Mat::zeros(_max, _max, CV_8UC3);
+    source.copyTo(result(Rect(0, 0, col, row)));
+    return result;
+}
+
+// Detection function
+void detect(Mat& image, Net& net, vector<Detection>& output, const vector<string>& className) {
+    Mat blob;
+    auto input_image = format_yolov5(image);
+
+    blobFromImage(input_image, blob, 1. / 255., Size(INPUT_WIDTH, INPUT_HEIGHT), Scalar(), true, false);
+    net.setInput(blob);
+
+    vector<Mat> outputs;
+    net.forward(outputs, net.getUnconnectedOutLayersNames());
+
+    float x_factor = input_image.cols / INPUT_WIDTH;
+    float y_factor = input_image.rows / INPUT_HEIGHT;
+
+    float* data = (float*)outputs[0].data;
+
+    const int dimensions = 85;
+    const int rows = 25200;
+
+    vector<int> class_ids;
+    vector<float> confidences;
+    vector<Rect> boxes;
+
+    for (int i = 0; i < rows; ++i) {
+        float confidence = data[4];
+
+        if (confidence >= CONFIDENCE_THRESHOLD) {
+            float* classes_scores = data + 5;
+            Mat scores(1, className.size(), CV_32FC1, classes_scores);
+            Point class_id;
+            double max_class_score;
+            minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
+
+            if (max_class_score > SCORE_THRESHOLD) {
+                confidences.push_back(confidence);
+                class_ids.push_back(class_id.x);
+
+                float x = data[0];
+                float y = data[1];
+                float w = data[2];
+                float h = data[3];
+                int left = int((x - 0.5 * w) * x_factor);
+                int top = int((y - 0.5 * h) * y_factor);
+                int width = int(w * x_factor);
+                int height = int(h * y_factor);
+                boxes.push_back(Rect(left, top, width, height));
+                //cout << left << "-" << top << "-" << width <<"-" << height << "\n";
+                
+            }
+        }
+        data += dimensions;
+    }
+
+    vector<int> nms_result;
+    NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD, nms_result);
+
+    for (int i = 0; i < nms_result.size(); i++) {
+        int idx = nms_result[i];
+
+        Detection result;
+        result.class_id = class_ids[idx];
+        result.confidence = confidences[idx];
+        result.box = boxes[idx];
+        output.push_back(result);
+
+        rectangle(image, boxes[idx], Scalar(0, 255, 0), 3);
+        string label = className[class_ids[idx]];
+        putText(image, label, Point(boxes[idx].x, boxes[idx].y - 5), FONT_HERSHEY_SIMPLEX, 2, Scalar(255, 255, 255), 2);
+    }
+}
+
+int ImageDetect();
+
+int ImageDetect() {
+    vector<string> class_list = load_class_list();
+
+    string image_path = samples::findFile("C:/Users/ekss7040175/ultralytics/carImage4.jpg");
+    Mat frame = imread(image_path, IMREAD_COLOR);
+
+    Net net;
+    load_net(net);
+
+    vector<Detection> output;
+    detect(frame, net, output, class_list);
+
+    imwrite("C:/Users/ekss7040175/ultralytics/result1.jpg", frame);
+
+    while (true)
+    {
+        imshow("image", frame);
+
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+
+    cout << "Processing complete. Image saved\n";
+    return 0;
+}
+
+int VideoDetect();
+
+int VideoDetect() {
+    vector<string> class_list = load_class_list();
+
+    // Open video capture (change the path or use webcam index)
+    string video_path = "C:/Users/ekss7040175/ultralytics/car_video.mp4";  // Path to video file
+    VideoCapture cap(video_path);
+    if (!cap.isOpened()) {
+        cerr << "Error: Could not open video." << endl;
+        return -1;
+    }
+
+    // Get video properties (width, height, fps)
+    int frame_width = cap.get(CAP_PROP_FRAME_WIDTH);
+    int frame_height = cap.get(CAP_PROP_FRAME_HEIGHT);
+    double fps = cap.get(CAP_PROP_FPS);
+
+    // Create VideoWriter to save the output video (optional)
+    VideoWriter out("C:/Users/ekss7040175/ultralytics/output_video1.avi",VideoWriter::fourcc('M', 'J', 'P', 'G'), 
+        fps, Size(frame_width, frame_height));
+
+    // Load the model
+    Net net;
+    load_net(net);
+
+    // Vector to store detection results
+    vector<Detection> output;
+
+    while (true) {
+        Mat frame;
+        cap >> frame;
+        if (frame.empty()) {
+            break;  
+        }
+
+        // Run detection on the current frame
+        detect(frame, net, output, class_list);
+        imshow("Detection", frame);
+
+        out.write(frame);
+        // 'Esc' key exit
+        if (cv::waitKey(1) == 27) {  
+            break;
+        }
+    }
+
+    cap.release();
+    out.release();
+    destroyAllWindows();
+
+    cout << "Processing complete. Video saved." << endl;
+    return 0;
+}
+
+// Contour detection
+
+int ThresholdContour() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage3.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+    cv::Mat blurred_image;
+    GaussianBlur(gray, blurred_image, Size(7, 7), 0);
+    Mat thresh;
+    threshold(blurred_image,thresh,130,255,THRESH_BINARY);
+    Mat image_copy = image.clone();
+    std::vector<std::vector<Point>> contours;
+    findContours(thresh, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE); //RETR_LIST RETR_EXTERNAL
+    drawContours(image_copy,contours,-1,Scalar(255,0,0),2);
+
+    while (true)
+    {
+        imshow("Step1  - Original", image);
+        //imshow("Gray", gray);
+        imshow("step2 = Threshold", thresh);
+        imshow("step3 - Contour", image_copy);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+}
+
+int EdgeBasedContour() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage14.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+
+    Mat blur;
+    GaussianBlur(gray,blur,Size(7,7),0,0);
+    Mat CannyOut;
+    //Rect roi(40,40,200,200);
+
+    //Mat image_roi = blur(gray);
+
+    Canny(gray,CannyOut,100,255);
+
+    Mat ImageCopy = image.clone();
+
+    std::vector<std::vector<Point>> contours;
+    findContours(CannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE); //RETR_LIST RETR_EXTERNAL
+
+
+    //Sorting the vector in descending order to draw 'n' contours
+    sort(contours.begin(), contours.end(), [](const vector<Point>& contours1, const vector<Point>& contours2) {
+        return contourArea(contours1) > contourArea(contours2);
+        });
+
+    //Now this method creates bounding boxes instead of drawing half lined or enclosed contours
+    for (int i = 0; i < 3; i++) {
+        Rect rect = boundingRect(contours[i]);
+        //cout << rect << " - ";
+        rectangle(ImageCopy, rect, Scalar(0, 255, 0), 2);
+        Point centre(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        //cout << centre << " \n";
+        int length = 10;
+        int thickness = 2;
+        line(ImageCopy, Point(centre.x - length / 2, centre.y), Point(centre.x + length / 2, centre.y), Scalar(255,0,0), thickness);
+        line(ImageCopy, Point(centre.x , centre.y - length / 2), Point(centre.x, centre.y + length / 2), Scalar(255, 0, 0), thickness);
+    }
+
+    // OR below method for adaptive rectangular boxes
+
+    //RotatedRect rotatedRect = minAreaRect(contours[1]);
+    //cv::Point2f rect_points[4];
+    //rotatedRect.points(rect_points);
+
+    //line(ImageCopy, rect_points[0], rect_points[(0 + 1) % 4], cv::Scalar(0, 255, 0), 2);
+    
+    //for (int i = 0; i < 4; i++) {
+    //    drawContours(ImageCopy, contours, i, Scalar(255, 0, 0), 2);
+    //}
+
+    //int max_area = 0;
+    //int max_index = -1;
+
+
+    //for (int i = 0; i < contours.size(); i++) {
+    //    double area = contourArea(contours[i]);
+    //    if (area > max_area) {
+    //        max_index = i;
+    //        max_area = area;
+    //    }
+    //}
+
+    //drawContours(ImageCopy, contours, -1, Scalar(255, 0, 0), 2);
+    //drawContours(ImageCopy, contours, max_index, Scalar(255, 0, 0), 2);
+
+    while (true)
+    {
+        //imshow("OG", image);
+        //imshow("Gray", gray);
+        imshow("edge Canny", CannyOut);
+        imshow("edge Contour", ImageCopy);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+}
+
+void MinAreaRect() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!" << endl;
+        return;
+    }
+
+    Mat image_copy = image.clone();
+
+    // Convert to grayscale
+    Mat gray_scale;
+    cvtColor(image_copy, gray_scale, COLOR_BGR2GRAY);
+
+    // Optional: Apply threshold to ensure contours are found
+    Mat thresh;
+    threshold(gray_scale, thresh, 50, 200, THRESH_BINARY);
+
+    // Find contours
+    vector<vector<Point>> contours;
+    vector<Vec4i> hierarchy;
+    findContours(thresh, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_NONE);
+
+    cout << "Contours found: " << contours.size() << endl;
+
+    if (contours.size() > 1) {
+        // Use second contour directly, as in your Python code
+        RotatedRect rect = minAreaRect(contours[1]);
+        cout << "Rect center: " << rect.center << ", size: " << rect.size << ", angle: " << rect.angle << endl;
+
+        // Convert rect to box points
+        Point2f box_points[4];
+        rect.points(box_points);
+
+        // Convert to vector<Point> for drawContours
+        vector<Point> box;
+        for (int i = 0; i < 4; i++) {
+            box.push_back(box_points[i]);
+        }
+
+        vector<vector<Point>> boxes = { box };
+
+        // Draw the contour (green)
+        drawContours(image_copy, boxes, 0, Scalar(0, 255, 0), 3);
+    }
+    else {
+        cout << "Not enough contours found!" << endl;
+    }
+
+    // Display result
+    imshow("Min Area Box", image_copy);
+    waitKey(0);
+    destroyAllWindows();
+}
+
+
+
+int RoiBasedContour() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage3.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+
+    Mat blur;
+    GaussianBlur(gray, blur, Size(7, 7), 0, 0);
+    Mat CannyOut;
+    Canny(gray, CannyOut, 100, 200);
+
+    Mat mask = Mat::zeros(image.size(), CV_8UC1);
+    Rect roi(183, 90, 90, 90);
+    rectangle(mask,roi,Scalar(255),FILLED);
+
+    Mat maskedImg;
+    bitwise_and(CannyOut,mask, maskedImg);
+
+    Mat ImageCopy = image.clone();
+
+    std::vector<std::vector<Point>> contours;
+    findContours(maskedImg, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE); //RETR_LIST RETR_EXTERNAL
+
+    int max_area = 0;
+    int max_index = -1;
+
+    for (int i = 0; i < contours.size(); i++) {
+        double area = contourArea(contours[i]);
+        if (area > max_area) {
+            max_index = i;
+            max_area = area;
+        }
+    }
+
+   
+
+    //drawContours(ImageCopy, contours, -1, Scalar(255, 0, 0), 2);
+    drawContours(ImageCopy, contours, max_index, Scalar(255, 0, 0), 2); // drawing largest contour or 
+    // OR we can sort the vector in descending order and draw 'n' contours 
+    //sort(myVector.begin(), myVector.end(), std::greater<int>());
+    
+    while (true)
+    {
+        //imshow("OG", image);
+        imshow("ROI", maskedImg);
+        imshow("Mask", mask);
+        imshow("edge Contour", ImageCopy);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+
+}
+
+void detectAndContour(Mat& image, Net& net, const vector<string>& classNames) {
+    vector<Detection> detections;
+    detect(image, net, detections, classNames);
+
+    Mat imageCopy = image.clone();
+
+    for (const auto& detection : detections) {
+        Rect box = detection.box;
+        float yolo_area = box.area();
+
+        Mat roi = image(box);
+
+        // Canny + contour inside ROI
+        Mat gray, blur, cannyOut;
+        cvtColor(roi, gray, COLOR_BGR2GRAY);
+        GaussianBlur(gray, blur, Size(7, 7), 0);
+        Canny(blur, cannyOut, 100, 255);
+
+        vector<vector<Point>> contours;
+        findContours(cannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+        sort(contours.begin(), contours.end(), [](const vector<Point>& a, const vector<Point>& b) {
+            return contourArea(a) > contourArea(b);
+            });
+
+        Point yoloCenter(box.x + box.width / 2, box.y + box.height / 2);
+
+        if (contourArea(contours[0]) < 0.075 * yolo_area) {
+            // Condition 1: Mark + at YOLO center
+            drawMarker(imageCopy, yoloCenter, Scalar(255, 0, 0), MARKER_CROSS, 10, 2);
+            cout << "condition 1\n";
+        }
+        else if (contours.size() > 1 && contourArea(contours[0]) >= 0.08 * yolo_area && contourArea(contours[1]) >= 0.08 * yolo_area) {
+            // Condition 2: Use centers of 2 largest contours
+            Moments m1 = moments(contours[0]);
+            Moments m2 = moments(contours[1]);
+
+            Point c1(box.x + int(m1.m10 / m1.m00), box.y + int(m1.m01 / m1.m00));
+            Point c2(box.x + int(m2.m10 / m2.m00), box.y + int(m2.m01 / m2.m00));
+
+            // Average the two contour centers
+            Point c3((c1.x + c2.x) / 2, (c1.y + c2.y) / 2);
+            Point avg_center((c3.x + yoloCenter.x) / 2, (c3.y + yoloCenter.y) / 2);
+
+            drawMarker(imageCopy, avg_center, Scalar(255, 0, 0), MARKER_CROSS, 10, 2);
+
+            // Create an approximate box centered at avg_center
+            int approx_width = (box.width + box.height) / 4; // heuristic size
+            int approx_height = approx_width;
+            Rect approx_box(avg_center.x - approx_width / 2, avg_center.y - approx_height / 2, approx_width, approx_height);
+            rectangle(imageCopy, approx_box, Scalar(0, 255, 255), 2);
+            cout << "condition 2\n";
+
+        }
+        else {
+            // Only 1 significant contour found (>=30%)
+            Moments m1 = moments(contours[0]);
+            Point c1(box.x + int(m1.m10 / m1.m00), box.y + int(m1.m01 / m1.m00));
+
+            Point avg_center((c1.x + yoloCenter.x) / 2, (c1.y + yoloCenter.y) / 2);
+
+            drawMarker(imageCopy, avg_center, Scalar(255, 0, 0), MARKER_CROSS, 10, 2);
+            cout << "condition 3\n";
+
+        }
+    }
+
+    imshow("YOLO + Smart Contours", imageCopy);
+    waitKey(0);
+}
+
+int ImageContourMain() {
+    string image_path = samples::findFile("C:/Users/ekss7040175/ultralytics/carImage10.jpg");
+    Mat frame = imread(image_path, IMREAD_COLOR);
+    Net net;
+    load_net(net);
+    vector<string> classnames = load_class_list();
+    detectAndContour(frame, net, classnames);
+}
+
+// for video
+void detectAndContourVideo(Mat& image, Net& net, const vector<string>& classNames, Mat& outputImage) {
+    vector<Detection> detections;
+    detect(image, net, detections, classNames);
+
+    Mat imageCopy = image.clone();
+
+    for (const auto& detection : detections) {
+        Rect box = detection.box;
+        Rect imageRect(0, 0, image.cols, image.rows);
+        Rect validBox = box & imageRect;  // intersection to make sure box is within image bounds
+        if (validBox.width <= 0 || validBox.height <= 0) 
+            continue;
+
+        float yolo_area = box.area();
+
+        Mat roi = image(validBox);
+
+        // Canny + contour inside ROI
+        Mat gray, blur, cannyOut;
+        cvtColor(roi, gray, COLOR_BGR2GRAY);
+        GaussianBlur(gray, blur, Size(7, 7), 0);
+        Canny(blur, cannyOut, 100, 255);
+
+        vector<vector<Point>> contours;
+        findContours(cannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+        sort(contours.begin(), contours.end(), [](const vector<Point>& a, const vector<Point>& b) {
+            return contourArea(a) > contourArea(b);
+            });
+
+        if (contours.empty()) continue;
+
+        //Point yoloCenter(box.x + box.width / 2, box.y + box.height / 2);
+        Point yoloCenter(validBox.x + validBox.width / 2, validBox.y + validBox.height / 2);
+
+
+        if (contourArea(contours[0]) < 0.08 * yolo_area) {
+            drawMarker(imageCopy, yoloCenter, Scalar(0, 0, 255), MARKER_CROSS, 10, 2);
+        }
+        //else if (contours.size() > 1 && contourArea(contours[0]) >= 0.08 * yolo_area && contourArea(contours[1]) >= 0.08 * yolo_area) {
+        //    Moments m1 = moments(contours[0]);
+        //    Moments m2 = moments(contours[1]);
+
+        //    Point c1(box.x + int(m1.m10 / m1.m00), box.y + int(m1.m01 / m1.m00));
+        //    Point c2(box.x + int(m2.m10 / m2.m00), box.y + int(m2.m01 / m2.m00));
+        //    Point c3((c1.x + c2.x) / 2, (c1.y + c2.y) / 2);
+        //    Point avg_center((c3.x + yoloCenter.x) / 2, (c3.y + yoloCenter.y) / 2);
+
+        //    drawMarker(imageCopy, avg_center, Scalar(255, 0, 0), MARKER_CROSS, 10, 2);
+
+        //    int approx_width = (box.width + box.height) / 4;
+        //    int approx_height = approx_width;
+        //    Rect approx_box(avg_center.x - approx_width / 2, avg_center.y - approx_height / 2, approx_width, approx_height);
+        //    rectangle(imageCopy, approx_box, Scalar(0, 255, 255), 2);
+        //}
+        else {
+            Moments m1 = moments(contours[0]);
+            //Point c1(box.x + int(m1.m10 / m1.m00), box.y + int(m1.m01 / m1.m00));
+            Point c1(validBox.x + int(m1.m10 / m1.m00), validBox.y + int(m1.m01 / m1.m00));
+
+            Point avg_center((c1.x + yoloCenter.x) / 2, (c1.y + yoloCenter.y) / 2);
+            drawMarker(imageCopy, avg_center, Scalar(0, 0, 255), MARKER_CROSS, 10, 2);
+        }
+    }
+
+    outputImage = imageCopy.clone(); // Return via reference
+}
+
+int VideoContourMain()
+{
+    string videoPath = "C:/Users/ekss7040175/ultralytics/cars4.mp4";            //car_video //cars2 //cars
+    string outputPath = "C:/Users/ekss7040175/ultralytics/ContourOutputVideo3.avi";  //ContourOutputVideo
+
+    VideoCapture cap(videoPath);
+    if (!cap.isOpened()) {
+        cerr << "Error opening video file\n";
+        return -1;
+    }
+
+    int frame_width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH));
+    int frame_height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT));
+    double fps = cap.get(CAP_PROP_FPS);
+    //cout << fps;
+    VideoWriter writer(outputPath, VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(frame_width, frame_height));
+
+    Net net;
+    load_net(net);
+    vector<string> classnames = load_class_list();
+
+    Mat frame, outputFrame;
+    while (true) {
+        cap >> frame;
+        if (frame.empty())
+            break;
+
+        detectAndContourVideo(frame, net, classnames, outputFrame);
+        writer.write(outputFrame);
+        //imshow("Processed Video", outputFrame);
+
+        if (waitKey(1) == 27) break; // ESC to quit
+    }
+
+    cap.release();
+    writer.release();
+    //destroyAllWindows();
+
+    return 0;
+}
+
+// path 3
+// 1864, 2720 // top left
+// 2084, 2724 // top right
+// 8, 3876    // bottom left
+// 3908, 3668 // bottom right
+
+// path 1
+
+// 169,163
+// 243, 167
+
+// 71,264
+// 379,275
+
+
+int PerspectiveTransform() {
+
+    cv::Mat image = imread("C:/Users/ekss7040175/ultralytics/path1.png");
+    if (image.empty()) {
+        std::cerr << "Error: Could not open image." << std::endl;
+        return -1;
+    }
+
+    // 1. Define source points (corners of the object in the distorted image)
+    //    These points need to be determined based on your specific image.
+    //    Order them consistently (e.g., top-left, top-right, bottom-right, bottom-left).
+    std::vector<cv::Point2f> src_pts = {
+        cv::Point2f(69,75), // Example: Top-left
+        cv::Point2f(271, 62), // Example: Top-right
+        cv::Point2f(345,325), // Example: Bottom-right
+        cv::Point2f(7, 340)   // Example: Bottom-left
+
+        //cv::Point2f(1864, 2720), // Example: Top-left
+        //cv::Point2f(2084, 2724), // Example: Top-right
+        //cv::Point2f(8, 3876), // Example: Bottom-right
+        //cv::Point2f(3908, 3668)   // Example: Bottom-left
+
+        //cv::Point2f(169,163), // Example: Top-left
+        //cv::Point2f(243, 167), // Example: Top-right
+        //cv::Point2f(71,264), // Example: Bottom-right
+        //cv::Point2f(379,275)   // Example: Bottom-left
+    };
+
+    // 2. Define destination points (corners of the desired top-down rectangle)
+    //    Choose a suitable width and height for your output image.
+    int output_width = 400;
+    int output_height = 600;
+    std::vector<cv::Point2f> dst_pts = {
+        cv::Point2f(0, 0),
+        cv::Point2f(output_width - 1, 0),
+        cv::Point2f(output_width - 1, output_height - 1),
+        cv::Point2f(0, output_height - 1)
+    };
+
+    // 3. Calculate the perspective transformation matrix
+    Mat M = cv::getPerspectiveTransform(src_pts, dst_pts);
+
+    // 4. Apply the perspective transformation
+    Mat warped_image;
+    warpPerspective(image, warped_image, M, cv::Size(output_width, output_height));
+
+    // Display the original and warped images
+    imshow("Original Image", image);
+    imshow("Warped Top-Down View", warped_image);
+    waitKey(0);
+
+    return 0;
+}
+
+int contourAreaCompare() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage3.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+
+    Mat blur;
+    GaussianBlur(gray, blur, Size(7, 7), 0, 0);
+    Mat CannyOut;
+    //Rect roi(40,40,200,200);
+
+    //Mat image_roi = blur(gray);
+
+    Canny(gray, CannyOut, 100, 255);
+
+    Mat ImageCopy = image.clone();
+
+    std::vector<std::vector<Point>> contours;
+    findContours(CannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE); //RETR_LIST RETR_EXTERNAL
+
+    // Centre comparison
+    double ImageCentreC = image.cols / 2.0;
+    double leftContourArea = 0.0;
+    double rightContourArea = 0.0;
+    Mat result_image = image.clone();
+    cout << "Img shape : " << ImageCentreC << endl;
+    for (const auto& contour : contours) {
+        Moments m = cv::moments(contour);
+
+        if (m.m00 == 0) continue;
+
+        Point2f centroid(m.m10 / m.m00, m.m01 / m.m00);
+        double areaImg = contourArea(contour);
+
+        if (centroid.x < ImageCentreC) {
+            leftContourArea += areaImg;
+            drawContours(result_image, vector<vector<Point>>{contour}, -1, Scalar(255, 0, 0, 128),FILLED);
+        }
+        else {
+            rightContourArea += areaImg;
+            drawContours(result_image, vector<vector<Point>>{contour}, -1, Scalar(0, 0, 255, 128), FILLED);
+        }
+
+    }
+    // left and right contourArea
+    
+    cout << "Area of Left Contour is " << leftContourArea << endl;
+    cout << "Area of Right Contour is " << rightContourArea << endl;
+
+    while (true)
+    {
+        //imshow("OG", image);
+        //imshow("Gray", gray);
+        imshow("edge Canny", CannyOut);
+        imshow("edge Contour", ImageCopy);
+        imshow("Seperated Contour", result_image);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+    return 0;
+}
+
+int RoiContourSeperation() {
+    Mat image = imread("C:/Users/ekss7040175/ultralytics/carImage3.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+
+    Mat blur;
+    GaussianBlur(gray, blur, Size(7, 7), 0, 0);
+    Mat CannyOut;
+    Canny(gray, CannyOut, 100, 200);
+
+    Mat mask = Mat::zeros(image.size(), CV_8UC1);
+    Rect roi(183, 90, 90, 90);
+    rectangle(mask, roi, Scalar(255), FILLED);
+
+    Mat maskedImg;
+    bitwise_and(CannyOut, mask, maskedImg);
+
+    Mat ImageCopy = image.clone();
+
+    std::vector<std::vector<Point>> contours;
+    findContours(maskedImg, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE); //RETR_LIST RETR_EXTERNAL
+
+    double ImageCentreC = image.cols / 2.0;
+    double leftContourArea = 0.0;
+    double rightContourArea = 0.0;
+    Mat result_image = image.clone();
+    cout << "Img shape : " << ImageCentreC << endl;
+    for (const auto& contour : contours) {
+        Moments m = cv::moments(contour);
+
+        if (m.m00 == 0) continue;
+
+        Point2f centroid(m.m10 / m.m00, m.m01 / m.m00);
+        double areaImg = contourArea(contour);
+
+        if (centroid.x < ImageCentreC) {
+            leftContourArea += areaImg;
+            drawContours(result_image, vector<vector<Point>>{contour}, -1, Scalar(255, 0, 0, 128), FILLED);
+        }
+        else {
+            rightContourArea += areaImg;
+            drawContours(result_image, vector<vector<Point>>{contour}, -1, Scalar(0, 0, 255, 128), FILLED);
+        }
+
+    }
+    // left and right contourArea
+
+    cout << "Area of Left Contour is " << leftContourArea << endl;
+    cout << "Area of Right Contour is " << rightContourArea << endl;
+
+    while (true)
+    {
+        //imshow("OG", image);
+        //imshow("Gray", gray);
+        imshow("edge Canny", CannyOut); //maskedImg
+        imshow("Masked", maskedImg);
+        imshow("edge Contour", ImageCopy);
+        imshow("Seperated Contour", result_image);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+    return 0;
+}
+
+void detectAndContour2(Mat& image, Net& net, const vector<string>& classNames) {
+    vector<Detection> detections;
+    detect(image, net, detections, classNames);
+
+    Mat imageCopy = image.clone();
+
+    //Image centre line
+    int width = image.cols;
+    int height = image.rows;
+    int centerX = width / 2;
+
+    Point startPoint(centerX, 0);
+    Point endPoint(centerX, height);
+
+    // Iterate detection
+
+    for (const auto& detection : detections) {
+        Rect box = detection.box;
+        Mat roi = image(box);
+
+        Mat gray, blur, cannyOut;
+        cvtColor(roi, gray, COLOR_BGR2GRAY);
+        GaussianBlur(gray, blur, Size(7, 7), 0);
+        Canny(blur, cannyOut, 100, 200);
+
+        vector<vector<Point>> contours;
+        findContours(cannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+        double roiCenterX = roi.cols / 2.0;
+        double leftContourArea = 0.0;
+        double rightContourArea = 0.0;
+        Point yoloCenter(box.x + box.width / 2, box.y + box.height / 2);
+
+        for (const auto& contour : contours) {
+            // Split contour points into left and right parts
+            vector<Point> leftPoints;
+            vector<Point> rightPoints;
+
+            for (const auto& pt : contour) {
+                if (pt.x < roiCenterX)
+                    leftPoints.push_back(pt);
+                else
+                    rightPoints.push_back(pt);
+            }
+
+            // Only draw and accumulate if enough points to form a polygon
+            if (leftPoints.size() >= 3) {
+                double areaL = contourArea(leftPoints);
+                leftContourArea += areaL;
+                vector<vector<Point>> leftContourVec = { leftPoints };
+                drawContours(roi, leftContourVec, -1, Scalar(255, 0, 0), FILLED);
+            }
+            if (rightPoints.size() >= 3) {
+                double areaR = contourArea(rightPoints);
+                rightContourArea += areaR;
+                vector<vector<Point>> rightContourVec = { rightPoints };
+                drawContours(roi, rightContourVec, -1, Scalar(0, 0, 255), FILLED);
+            }
+        }
+
+        rectangle(imageCopy, box, Scalar(0, 255, 0), 2);
+        /*
+        if (leftContourArea > 0 && rightContourArea > 0) {
+            cout << "Left Area: " + to_string(int(leftContourArea)) << endl;
+            cout << "Right Area: " + to_string(int(rightContourArea)) << endl;
+
+            if (yoloCenter.x > centerX) {
+                cout << "yoloCenter.x > centerX so safe path is in the Left direction" << endl;
+            }
+            else if (yoloCenter.x < centerX) {
+                cout << "yoloCenter.x < centerX so safe path is in the Right direction" << endl;
+            }
+            else if (yoloCenter.x == centerX) {
+                String pathVal = (leftContourArea > rightContourArea) ? "Right" : "Left";
+                cout << "yoloCenter.x == centerX so safepath is in " + pathVal << endl;
+            }
+        }
+        */
+        if (leftContourArea > 0 && rightContourArea > 0) {
+            cout << "Left Area: " + to_string(int(leftContourArea)) << endl;
+            cout << "Right Area: " + to_string(int(rightContourArea)) << endl;
+
+            Point arrowStart = yoloCenter;
+            Point controlPoint, arrowEnd;
+
+            bool goLeft = false;
+
+            if (yoloCenter.x > centerX) {
+                cout << "yoloCenter.x > centerX so safe path is in the Left direction" << endl;
+                goLeft = true;
+            }
+            else if (yoloCenter.x < centerX) {
+                cout << "yoloCenter.x < centerX so safe path is in the Right direction" << endl;
+                goLeft = false;
+            }
+            else {
+                goLeft = leftContourArea > rightContourArea;
+                cout << "yoloCenter.x == centerX so safepath is in " << (goLeft ? "Left" : "Right") << endl;
+            }
+
+            // Set curved path control and end point
+            int curveLength = 100;
+            int curveHeight = 50;
+            if (goLeft) {
+                arrowEnd = Point(max(box.x - curveLength, 0), box.y + box.height);
+                controlPoint = Point((arrowStart.x + arrowEnd.x) / 2, arrowStart.y - curveHeight);
+            }
+            else {
+                arrowEnd = Point(min(box.x + box.width + curveLength, image.cols), box.y + box.height);
+                controlPoint = Point((arrowStart.x + arrowEnd.x) / 2, arrowStart.y - curveHeight);
+            }
+
+            // Create a curve using quadratic Bezier formula
+            vector<Point> curvePoints;
+            for (double t = 0; t <= 1.0; t += 0.01) {
+                double x = pow(1 - t, 2) * arrowStart.x + 2 * (1 - t) * t * controlPoint.x + pow(t, 2) * arrowEnd.x;
+                double y = pow(1 - t, 2) * arrowStart.y + 2 * (1 - t) * t * controlPoint.y + pow(t, 2) * arrowEnd.y;
+                curvePoints.emplace_back(Point(cvRound(x), cvRound(y)));
+            }
+
+            polylines(imageCopy, curvePoints, false, Scalar(0, 255, 255), 2, LINE_AA);
+
+            // Optionally, draw an arrowhead
+            //arrowedLine(imageCopy, curvePoints[curvePoints.size() - 2], curvePoints.back(), Scalar(0, 255, 255), 2, LINE_AA, 0, 0.3);
+        }
+
+        else if (leftContourArea == 0 && rightContourArea == 0) continue;
+        //putText(imageCopy, "Left Area: " + to_string(int(leftContourArea)), Point(box.x, box.y - 15), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 0, 0), 1);
+        //putText(imageCopy, "Right Area: " + to_string(int(rightContourArea)), Point(box.x, box.y - 2), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 255), 1);
+        
+        // This condition should be the main priority
+
+        
+        roi.copyTo(imageCopy(box));
+    }
+
+    line(imageCopy, startPoint, endPoint, Scalar(0,255,0),2);
+    imshow("YOLO + Split Contours Left/Right", imageCopy);
+    waitKey(0);
+}
+
+void detectAndContour3(Mat& image, Net& net, const vector<string>& classNames) {
+    vector<Detection> detections;
+    detect(image, net, detections, classNames);
+
+    if (detections.empty()) {
+        cout << "No detections found." << endl;
+        return;
+    }
+
+    Mat imageCopy = image.clone();
+    int width = image.cols;
+    int height = image.rows;
+
+    Point originalPathStart(width / 2, height - 1);
+    Point currentPathStart = originalPathStart;
+
+    const int maxObjects = 2;
+    const double AREA_THRESHOLD = 3000;
+    const int MIN_SAFE_DISTANCE = 20;
+    const int MIN_PASS_WIDTH = 60;
+    const int MIN_OBJECT_GAP = 10;
+
+    const int VEHICLE_HALF_WIDTH = 40;   // Half-width of vehicle in pixels
+    const int LOOKAHEAD_PIXELS = 60;    // How far ahead to simulate vehicle movement
+
+    auto isPathClear = [&](const vector<Rect>& obstacles, Point start, bool goLeft) -> bool {
+        const int step = 5;
+        for (int y = start.y; y > start.y - LOOKAHEAD_PIXELS; y -= step) {
+            int xCenter = start.x + (goLeft ? -1 : 1) * (start.y - y) / 3;
+            int xLeft = xCenter - VEHICLE_HALF_WIDTH;
+            int xRight = xCenter + VEHICLE_HALF_WIDTH;
+
+            Rect carRect(xLeft, y, VEHICLE_HALF_WIDTH * 2, step);
+
+            for (const Rect& obs : obstacles) {
+                if ((carRect & obs).area() > 0) {
+                    return false; // Collision detected
+                }
+            }
+        }
+        return true;
+        };
+
+    int processed = 0;
+    bool lastTurnLeft = false;
+    vector<Rect> allObstacleRects;
+
+    for (size_t i = 0; i < detections.size() && processed < maxObjects; ++i) {
+        const auto& detection = detections[i];
+        Rect box = detection.box;
+        allObstacleRects.push_back(box);
+
+        Mat roi = image(box);
+        Point objectCenter(box.x + box.width / 2, box.y + box.height / 2);
+
+        // Halt if object is too close and wide
+        bool tooClose = (box.y + box.height > height - MIN_SAFE_DISTANCE);
+        bool tooWideNear = tooClose && (box.width > width * 0.4);
+        if (tooWideNear) {
+            putText(imageCopy, "HALT: Obstacle Too Close", Point(box.x, box.y - 10),
+                FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+            cout << "HALT: Obstacle too close and wide.\n";
+            rectangle(imageCopy, box, Scalar(0, 0, 255), 3);
+            break;
+        }
+
+        Mat gray, blur, cannyOut;
+        cvtColor(roi, gray, COLOR_BGR2GRAY);
+        GaussianBlur(gray, blur, Size(7, 7), 0);
+        Canny(blur, cannyOut, 100, 200);
+
+        vector<vector<Point>> contours;
+        findContours(cannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+        double roiCenterX = roi.cols / 2.0;
+        double leftContourArea = 0.0, rightContourArea = 0.0;
+
+        for (const auto& contour : contours) {
+            vector<Point> leftPoints, rightPoints;
+            for (const auto& pt : contour) {
+                if (pt.x < roiCenterX)
+                    leftPoints.push_back(pt);
+                else
+                    rightPoints.push_back(pt);
+            }
+
+            if (leftPoints.size() >= 3)
+                leftContourArea += contourArea(leftPoints);
+            if (rightPoints.size() >= 3)
+                rightContourArea += contourArea(rightPoints);
+        }
+
+        // Check for nearby second object
+        if (i + 1 < detections.size()) {
+            Rect nextBox = detections[i + 1].box;
+            int dx = abs(nextBox.x - box.x);
+            if (dx < MIN_OBJECT_GAP) {
+                putText(imageCopy, "HALT: Objects Too Close", Point(box.x, box.y - 10),
+                    FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+                cout << "HALT: Objects too close.\n";
+                rectangle(imageCopy, box, Scalar(0, 0, 255), 2);
+                break;
+            }
+        }
+
+        // Get gap sizes
+        bool leftFree = leftContourArea < AREA_THRESHOLD;
+        bool rightFree = rightContourArea < AREA_THRESHOLD;
+
+        int leftGap = box.x;
+        int rightGap = width - (box.x + box.width);
+
+        bool leftWideEnough = leftGap > MIN_PASS_WIDTH;
+        bool rightWideEnough = rightGap > MIN_PASS_WIDTH;
+
+        // full vehicle footprint and check for collision
+        bool leftPossible = leftFree && leftWideEnough && isPathClear(allObstacleRects, currentPathStart, true);
+        bool rightPossible = rightFree && rightWideEnough && isPathClear(allObstacleRects, currentPathStart, false);
+
+        bool goLeft;
+        if (leftPossible && rightPossible) {
+            goLeft = (leftGap >= rightGap);
+        }
+        else if (leftPossible) {
+            goLeft = true;
+        }
+        else if (rightPossible) {
+            goLeft = false;
+        }
+        else {
+            putText(imageCopy, "HALT: Vehicle Can't Fit", Point(box.x, box.y - 10),
+                FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+            cout << "HALT: No path where the full vehicle fits.\n";
+            rectangle(imageCopy, box, Scalar(0, 0, 255), 2);
+            break;
+        }
+
+        lastTurnLeft = goLeft;
+
+        // Curved path
+        Point arrowEnd, controlPoint;
+        int offsetX = min(40 + box.width / 2, 80);
+        int curveHeight = 100;
+
+        if (goLeft) {
+            arrowEnd = Point(max(box.x - offsetX, 0), box.y + box.height);
+            controlPoint = Point((currentPathStart.x + arrowEnd.x) / 2, currentPathStart.y - curveHeight);
+        }
+        else {
+            arrowEnd = Point(min(box.x + box.width + offsetX, width - 1), box.y + box.height);
+            controlPoint = Point((currentPathStart.x + arrowEnd.x) / 2, currentPathStart.y - curveHeight);
+        }
+
+        vector<Point> curvePoints;
+        for (double t = 0; t <= 1.0; t += 0.01) {
+            double x = pow(1 - t, 2) * currentPathStart.x + 2 * (1 - t) * t * controlPoint.x + pow(t, 2) * arrowEnd.x;
+            double y = pow(1 - t, 2) * currentPathStart.y + 2 * (1 - t) * t * controlPoint.y + pow(t, 2) * arrowEnd.y;
+            curvePoints.emplace_back(Point(cvRound(x), cvRound(y)));
+        }
+
+        polylines(imageCopy, curvePoints, false, Scalar(0, 255, 255), 2, LINE_AA);
+        putText(imageCopy, "Avoid: " + string(goLeft ? "Left" : "Right"),
+            Point(box.x, box.y - 10), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
+
+        currentPathStart = arrowEnd;
+        rectangle(imageCopy, box, Scalar(0, 255, 0), 2);
+        roi.copyTo(imageCopy(box));
+        processed++;
+    }
+
+    imshow("YOLO + Vehicle-Aware Avoidance", imageCopy);
+    waitKey(0);
+}
+
+// doing this just to avoid the error later the fuction will be compiled
+void drawVehicleOnPath(Mat& img, const vector<Point>& curve, int bodyLength = 80, int bodyWidth = 40, Scalar color = Scalar(100, 100, 255));
+
+void detectAndContour4(Mat& image, Net& net, const vector<string>& classNames) {
+    vector<Detection> detections;
+    detect(image, net, detections, classNames);
+
+    if (detections.empty()) {
+        cout << "No detections found." << endl;
+        return;
+    }
+
+    Mat imageCopy = image.clone();
+    int width = image.cols;
+    int height = image.rows;
+
+    Point originalPathStart(width / 2, height - 1);
+    Point currentPathStart = originalPathStart;
+
+    const int maxObjects = 2;
+    const double AREA_THRESHOLD = 3000;
+    const int MIN_SAFE_DISTANCE = 20;
+    const int MIN_PASS_WIDTH = 40;
+    const int MIN_OBJECT_GAP = 10;
+
+    const int VEHICLE_HALF_WIDTH = 40;
+    const int LOOKAHEAD_PIXELS = 60;
+
+    auto isPathClear = [&](const vector<Rect>& obstacles, Point start, bool goLeft) -> bool {
+        const int step = 5;
+        for (int y = start.y; y > start.y - LOOKAHEAD_PIXELS; y -= step) {
+            int xCenter = start.x + (goLeft ? -1 : 1) * (start.y - y) / 3;
+            int xLeft = xCenter - VEHICLE_HALF_WIDTH;
+            int xRight = xCenter + VEHICLE_HALF_WIDTH;
+
+            Rect carRect(xLeft, y, VEHICLE_HALF_WIDTH * 2, step);
+
+            for (const Rect& obs : obstacles) {
+                if ((carRect & obs).area() > 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+        };
+
+    int processed = 0;
+    bool lastTurnLeft = false;
+    vector<Rect> allObstacleRects;
+    vector<Point> finalCurvePoints;
+
+    for (size_t i = 0; i < detections.size() && processed < maxObjects; ++i) {
+        const auto& detection = detections[i];
+        Rect box = detection.box;
+        allObstacleRects.push_back(box);
+
+        Mat roi = image(box);
+        Point objectCenter(box.x + box.width / 2, box.y + box.height / 2);
+
+        bool tooClose = (box.y + box.height > height - MIN_SAFE_DISTANCE);
+        bool tooWideNear = tooClose && (box.width > width * 0.4);
+        if (tooWideNear) {
+            putText(imageCopy, "HALT: Obstacle Too Close", Point(box.x, box.y - 10),
+                FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+            rectangle(imageCopy, box, Scalar(0, 0, 255), 3);
+            cout << "HALT: Obstacle too close and wide. Object index: " << i << "\n";
+            break;
+        }
+
+        Mat gray, blur, cannyOut;
+        cvtColor(roi, gray, COLOR_BGR2GRAY);
+        GaussianBlur(gray, blur, Size(7, 7), 0);
+        Canny(blur, cannyOut, 100, 200);
+
+        vector<vector<Point>> contours;
+        findContours(cannyOut, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+        double roiCenterX = roi.cols / 2.0;
+        double leftContourArea = 0.0, rightContourArea = 0.0;
+
+        for (const auto& contour : contours) {
+            vector<Point> leftPoints, rightPoints;
+            for (const auto& pt : contour) {
+                if (pt.x < roiCenterX)
+                    leftPoints.push_back(pt);
+                else
+                    rightPoints.push_back(pt);
+            }
+
+            if (leftPoints.size() >= 3)
+                leftContourArea += contourArea(leftPoints);
+            if (rightPoints.size() >= 3)
+                rightContourArea += contourArea(rightPoints);
+        }
+
+        if (i + 1 < detections.size()) {
+            Rect nextBox = detections[i + 1].box;
+            int dx = abs(nextBox.x - box.x);
+            if (dx < MIN_OBJECT_GAP) {
+                putText(imageCopy, "HALT: Objects Too Close", Point(box.x, box.y - 10),
+                    FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+                rectangle(imageCopy, box, Scalar(0, 0, 255), 2);
+                cout << "HALT: Objects too close. Object index: " << i << "\n";
+                break;
+            }
+        }
+
+        bool leftFree = leftContourArea < AREA_THRESHOLD;
+        bool rightFree = rightContourArea < AREA_THRESHOLD;
+
+        int leftGap = box.x;
+        int rightGap = width - (box.x + box.width);
+
+        bool leftWideEnough = leftGap > MIN_PASS_WIDTH;
+        bool rightWideEnough = rightGap > MIN_PASS_WIDTH;
+
+        bool leftPossible = leftFree && leftWideEnough && isPathClear(allObstacleRects, currentPathStart, true);
+        bool rightPossible = rightFree && rightWideEnough && isPathClear(allObstacleRects, currentPathStart, false);
+
+        bool goLeft;
+        if (leftPossible && rightPossible) {
+            goLeft = (leftGap >= rightGap);
+        }
+        else if (leftPossible) {
+            goLeft = true;
+        }
+        else if (rightPossible) {
+            goLeft = false;
+        }
+        else {
+            //cout << "leftFree=" << leftFree << ", rightFree=" << rightFree << "\n";
+            //cout << "leftGap=" << leftGap << ", rightGap=" << rightGap << "\n";
+            //cout << "Left Possible : " << leftPossible << "\n" << "RightPossible : " << rightPossible << "\n";
+            //cout << "isPathClear(left)=" << isPathClear(allObstacleRects, currentPathStart, true) << "\n";
+            //cout << "isPathClear(right)=" << isPathClear(allObstacleRects, currentPathStart, false) << "\n";
+
+            putText(imageCopy, "HALT: Vehicle Can't Fit", Point(box.x, box.y - 10),
+                FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 0, 255), 2);
+            rectangle(imageCopy, box, Scalar(0, 0, 255), 2);
+            cout << "HALT: No path available. Object index: " << i << "\n";
+            break;
+        }
+
+        lastTurnLeft = goLeft;
+
+        // Logging the avoidance decision
+        cout << "Object index: " << i << " | Avoiding " << (goLeft ? "left" : "right") << " | Path successfully planned.\n";
+
+        // Curved path visualization
+        Point arrowEnd, controlPoint;
+
+        // EITHER FIXED 
+         int offsetX = min(40 + box.width / 2, 80);
+         int curveHeight = 100;
+
+        //OR 
+
+        // Dynamic offset
+        // Dynamic curvature based on how close and how big the object is
+
+        //int verticalDistanceToObject = height - (box.y + box.height);
+        //verticalDistanceToObject = max(verticalDistanceToObject, 1);  // avoid division by 0
+
+        //float closenessFactor = 1.0f - min(verticalDistanceToObject / 150.0f, 1.0f);  // 0 (far) to 1 (very close)
+
+        //// How wide the object is relative to the image
+        //float widthFactor = min(box.width / static_cast<float>(width), 1.0f);
+
+        //// Final "urgency" of the curve
+        //float urgency = max(closenessFactor, widthFactor);
+
+        //// More urgency = sharper curve
+        //int curveHeight = static_cast<int>(150 * urgency);   // 100 to 200
+        //int offsetX = static_cast<int>(100 * urgency);         // 50 to 130
+
+
+        if (goLeft) {
+            arrowEnd = Point(max(box.x - offsetX, 0), box.y + box.height);
+            controlPoint = Point((currentPathStart.x + arrowEnd.x) / 2, currentPathStart.y - curveHeight);
+        }
+        else {
+            arrowEnd = Point(min(box.x + box.width + offsetX, width - 1), box.y + box.height);
+            controlPoint = Point((currentPathStart.x + arrowEnd.x) / 2, currentPathStart.y - curveHeight);
+        }
+
+        vector<Point> curvePoints;
+        for (double t = 0; t <= 1.0; t += 0.01) {
+            double x = pow(1 - t, 2) * currentPathStart.x + 2 * (1 - t) * t * controlPoint.x + pow(t, 2) * arrowEnd.x;
+            double y = pow(1 - t, 2) * currentPathStart.y + 2 * (1 - t) * t * controlPoint.y + pow(t, 2) * arrowEnd.y;
+            
+            //curvePoints.emplace_back(Point(cvRound(x), cvRound(y)));  // CONDITION for previous curve Points not used now
+            finalCurvePoints.emplace_back(Point(cvRound(x), cvRound(y)));
+
+        }
+
+        polylines(imageCopy, curvePoints, false, Scalar(0, 255, 255), 2, LINE_AA);
+        polylines(imageCopy, finalCurvePoints, false, Scalar(0, 255, 255), 2, LINE_AA);
+        if (finalCurvePoints.size() >= 10)
+            arrowedLine(imageCopy, finalCurvePoints[finalCurvePoints.size() - 10], finalCurvePoints.back(), Scalar(255, 255, 0), 3, LINE_AA);
+
+        putText(imageCopy, "Avoid: " + string(goLeft ? "Left" : "Right"),
+            Point(box.x, box.y - 10), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
+
+        currentPathStart = arrowEnd;
+        rectangle(imageCopy, box, Scalar(0, 255, 0), 2);
+        roi.copyTo(imageCopy(box));
+        processed++;
+    }
+
+    imshow("YOLO + Vehicle-Aware Avoidance", imageCopy);
+    Mat clearanceMap = Mat::zeros(image.size(), CV_8UC3);
+    for (const Rect& obs : allObstacleRects) {
+        rectangle(clearanceMap, obs, Scalar(0, 0, 255), FILLED);
+    }
+
+    for (int y = height - 1; y > height - LOOKAHEAD_PIXELS; y -= 10) {
+        Rect centerTraceRect(width / 2 - VEHICLE_HALF_WIDTH, y, VEHICLE_HALF_WIDTH * 2, 5);
+        bool blocked = false;
+        for (const Rect& obs : allObstacleRects) {
+            if ((centerTraceRect & obs).area() > 0) {
+                blocked = true;
+                break;
+            }
+        }
+
+        Scalar color = blocked ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
+        rectangle(clearanceMap, centerTraceRect, color, FILLED);
+    }
+
+    if (!finalCurvePoints.empty()) {
+        Mat pathSimulation = imageCopy.clone();  // Separate simulation view
+        //drawVehicleOnPath(pathSimulation, finalCurvePoints);  // Draw vehicle shapes
+        drawVehicleOnPath(pathSimulation, finalCurvePoints, 50, 4, Scalar(100, 100, 255));
+
+        imshow("Vehicle Simulation Along Path", pathSimulation);
+    }
+    imshow("Clearance Map", clearanceMap);
+
+    waitKey(0);
+}
+
+void drawVehicleOnPath(Mat& img, const vector<Point>& curve, int maxWidth, int minWidth, Scalar baseColor) {
+    int totalPoints = static_cast<int>(curve.size());
+    for (int i = 0; i + 1 < totalPoints; ++i) {
+        float alpha = static_cast<float>(i) / totalPoints;  // 0.0 (start) to 1.0 (end)
+
+        // Simulate perspective: thickness decreases as vehicle moves "forward"
+        int thickness = static_cast<int>(maxWidth * (1.0f - alpha) + minWidth * alpha);
+        thickness = std::max(thickness, 1);  // minimum thickness
+
+        // Optional: fade color slightly with distance (e.g., towards gray/white)
+        Scalar fadedColor = Scalar(
+            baseColor[0] * (1.0 - alpha) + 180 * alpha,
+            baseColor[1] * (1.0 - alpha) + 180 * alpha,
+            baseColor[2] * (1.0 - alpha) + 180 * alpha
+        );
+
+        line(img, curve[i], curve[i + 1], fadedColor, thickness, LINE_AA);
+    }
+}
+
+
+int PathCheck() {
+    string image_path = samples::findFile("C:/Users/ekss7040175/ultralytics/carImage1.jpg");
+    Mat frame = imread(image_path, IMREAD_COLOR);
+    Net net;
+    load_net(net);
+    vector<string> classnames = load_class_list();
+    //detectAndSeperateontour(frame, net, classnames);
+    //detectAndContour2(frame, net, classnames);
+    detectAndContour3(frame, net, classnames);
+    //detectAndContour4(frame, net, classnames);
+
+}
+
+int main(int argc, char** argv)
+{   
+    //ImageDetect();    // function for blob inside image
+    //VideoDetect();      // for video
+    //ThresholdContour();
+    //EdgeBasedContour();
+    //RoiBasedContour();
+    //MinAreaRect();
+    //ImageContourMain();
+    //VideoContourMain();
+    //ImageContourMain();
+    //PerspectiveTransform();
+    //contourAreaCompare();
+    //RoiContourSeperation();
+    //PathCheck();
+    return 0;
+}
+
