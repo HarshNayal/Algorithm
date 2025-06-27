@@ -1,0 +1,248 @@
+//#define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING 1
+
+#include <iostream>
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/videoio/videoio.hpp>
+#include <opencv2/imgproc.hpp>
+#include <iomanip>
+#include <sstream>
+#include <ctime>
+#include <filesystem>
+
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Devices.Geolocation.h>
+
+using namespace cv;
+using namespace std;
+namespace fs = std::filesystem;
+using namespace winrt;
+using namespace Windows::Devices::Geolocation;
+
+
+int saveVideo(fs::path& output_directory);
+fs::path makeDirectory();
+void location(); // Currently not supported for desktop apps
+
+int saveVideo(fs::path& output_directory) {
+    VideoCapture cap(0);
+
+    if (!cap.isOpened()) {
+        cerr << "Could not open camera" << endl;
+        return -1;
+    }
+
+    int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    double fps = 60.0;
+    Size frame_size(640, 480);
+
+    fs::path filename = output_directory / "processed_mjpeg.avi";
+    fs::path filenameOG = output_directory / "original_mjpeg.avi";
+
+    VideoWriter writer, writer2raw;
+    bool is_color = false;
+    bool is_color_original = true;
+
+    if (!writer.open(filename.string(), codec, fps, frame_size, is_color)) {
+        cerr << "Could not open the processed output file" << endl;
+        return -1;
+    }
+
+    if (!writer2raw.open(filenameOG.string(), codec, fps, frame_size, is_color_original)) {
+        cerr << "Could not open the raw output file" << endl;
+        return -1;
+    }
+
+    Mat frame, rgb_frame;
+    while (true) {
+        cap >> frame;
+        if (frame.empty()) break;
+
+        cvtColor(frame, rgb_frame, COLOR_BGR2GRAY);
+
+        writer << rgb_frame;
+        writer2raw << frame;
+
+        imshow("Processed Output", rgb_frame);
+        imshow("Raw Output", frame);
+        if (waitKey(1) >= 0) break;
+    }
+
+    cap.release();
+    writer.release();
+    writer2raw.release();
+    destroyAllWindows();
+    return 0;
+}
+
+fs::path makeDirectory() {
+    stringstream date, timestring;
+    time_t now = time(0);
+    tm local;
+    localtime_s(&local, &now);
+
+    date << __DATE__;
+    timestring << put_time(&local, "%H-%M-%S");
+
+    auto dir = fs::current_path() / date.str() / timestring.str();
+
+    cout << "Directory name is - " << dir << "\n";
+    if (create_directories(dir)) {
+        cout << "Directory has been created \n";
+    }
+    else {
+        cout << "Directory exists\n";
+    }
+    return dir;
+}
+
+
+// Only works in a UWP app / C++/WinRT project — comment out for standard desktop apps
+
+void location() {
+    winrt::init_apartment();
+
+    try {
+        Geolocator locator;
+        auto pos = locator.GetGeopositionAsync().get();
+        auto coord = pos.Coordinate().Point().Position();
+
+        cout << "Latitude: " << coord.Latitude << endl;
+        cout << "Longitude: " << coord.Longitude << endl;
+    }
+    catch (const hresult_error& e) {
+        wcerr << L"Error: " << e.message().c_str() << endl;
+    }
+}
+
+int HistEqualise() {
+    Mat image = imread("sample1.bmp", IMREAD_COLOR);
+
+    // Check if the image was loaded successfully
+    if (image.empty()) {
+        cout << "Could not open or find the image!" << endl;
+        return -1;
+    }
+    Mat gray,newgray;
+    cvtColor(image, gray,COLOR_BGR2GRAY);
+    equalizeHist(gray, newgray);
+    imshow("Normal Image window", gray);
+    imshow("Equlize hist window", newgray);
+    // Wait for a keystroke before closing the window
+    waitKey(0);
+
+    // Destroy all opened windows
+    destroyAllWindows();
+
+}
+
+int cannyImageD() {
+    Mat image = imread("sukuna.jpg", COLOR_BGR2GRAY);
+
+    // Check if the image was loaded successfully
+    if (image.empty()) {
+        cout << "Could not open or find the image!" << endl;
+        return -1;
+    }
+    Mat gray, cannyimg;
+    cvtColor(image, cannyimg, COLOR_BGR2GRAY);
+    //equalizeHist(cannyimg, cannyimg);
+    Canny(cannyimg, cannyimg,200,300);
+
+    imshow("Normal Image window", cannyimg);
+    //imshow("Equlize hist window", newgray);
+    // Wait for a keystroke before closing the window
+    waitKey(0);
+
+    // Destroy all opened windows
+    destroyAllWindows();
+
+}
+int mycarcascade() {
+    CascadeClassifier car_cascade;
+    if (!car_cascade.load("cars.xml")) {
+        cerr << "Error loading car cascade file\n";
+        return -1;
+    }
+
+    VideoCapture cap("car_video.mp4"); 
+    if (!cap.isOpened()) {
+        cerr << "Error opening video stream\n";
+        return -1;
+    }
+
+    Mat frame, gray;
+    vector<Rect> cars;
+
+    while (cap.read(frame)) {
+        cvtColor(frame, gray, COLOR_BGR2GRAY);
+        equalizeHist(gray, gray);
+
+        // Detect cars
+        //car_cascade.detectMultiScale(gray, cars, 1.1, 2.4, 4 | CASCADE_SCALE_IMAGE, Size(40, 40));
+        car_cascade.detectMultiScale(gray, cars, 1.1, 2.4, 0, Size(40, 40));
+
+        for (const auto& car : cars) {
+            rectangle(frame, car, Scalar(255, 0, 0), 2);
+        }
+
+        imshow("Car Detection", frame);
+        if (waitKey(30) == 27) break;
+    }
+
+    cap.release();
+    destroyAllWindows();
+    return 0;
+}
+
+int RoiBasedContour() {
+    Mat image = imread("C:/Users//ultralytics/carImage3.jpg");
+    if (image.empty()) {
+        cerr << "Image not found!";
+    }
+    Mat gray;
+    cvtColor(image, gray, COLOR_BGR2GRAY);
+
+    Mat blur;
+    GaussianBlur(gray, blur, Size(7, 7), 0, 0);
+    Mat CannyOut;
+    Canny(gray, CannyOut, 100, 200);
+
+    Mat mask = Mat::zeros(image.size(), CV_8UC1);
+    Rect roi(183, 90, 90, 90);
+    rectangle(mask, roi, Scalar(255), FILLED);
+
+    Mat maskedImg;
+    bitwise_and(CannyOut, mask, maskedImg);
+
+    Mat ImageCopy = image.clone();
+
+    std::vector<std::vector<Point>> contours;
+    findContours(maskedImg, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE); //RETR_LIST RETR_EXTERNAL
+    drawContours(ImageCopy, contours, -1, Scalar(255, 0, 0), 2);
+
+    while (true)
+    {
+        //imshow("OG", image);
+        imshow("ROI", maskedImg);
+        imshow("Mask", mask);
+        imshow("edge Contour", ImageCopy);
+        if (waitKey(1) != -1)
+        {
+            cout << "finished by user\n";
+            break;
+        }
+    }
+}
+
+int main() {
+    fs::path directory = makeDirectory();
+    cout << "\n";
+    //location();
+    //cannyImageD();
+    mycarcascade();
+    //HistEqualise();
+    //saveVideo(directory); // project 7
+    return 0;
+}
